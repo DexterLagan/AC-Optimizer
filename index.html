@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Apartment Airflow Simulation</title>
+    <title>AC-Optimizer: Apartment Airflow Simulation</title>
     <style>
         body {
             margin: 0;
@@ -16,16 +16,18 @@
         }
         
         .controls {
-            width: 280px;
+            width: 260px;
             background: #2a2a2a;
-            padding: 20px;
+            padding: 15px;
             border-radius: 8px;
             height: fit-content;
+            max-height: 90vh;
+            overflow-y: auto;
         }
         
         .control-group {
-            margin-bottom: 20px;
-            padding-bottom: 15px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
             border-bottom: 1px solid #444;
         }
         
@@ -34,33 +36,35 @@
         }
         
         .control-group h3 {
-            margin: 0 0 10px 0;
+            margin: 0 0 6px 0;
             color: #60a5fa;
+            font-size: 14px;
         }
         
         label {
             display: block;
-            margin: 8px 0 4px 0;
-            font-size: 14px;
+            margin: 4px 0 2px 0;
+            font-size: 12px;
         }
         
         input[type="range"] {
             width: 100%;
-            margin: 4px 0;
+            margin: 2px 0;
         }
         
         input[type="checkbox"] {
-            margin-right: 8px;
+            margin-right: 6px;
         }
         
         button {
             background: #3b82f6;
             color: white;
             border: none;
-            padding: 8px 16px;
+            padding: 6px 12px;
             border-radius: 4px;
             cursor: pointer;
-            margin: 4px 4px 4px 0;
+            margin: 2px 2px 2px 0;
+            font-size: 11px;
         }
         
         button:hover {
@@ -168,6 +172,1504 @@
         <canvas id="canvas" width="900" height="600"></canvas>
     </div>
 
-    <script type="module" src="main.js"></script>
+    <script>
+        // Apartment.js embedded
+        class Apartment {
+            constructor(width = 9.0, height = 6.0) {
+                this.width = width;   // 9 meters
+                this.height = height; // 6 meters
+                this.floorHeight = 3.0; // Each floor is 3m high
+                
+                // Zone definitions (in meters)
+                this.zones = {
+                    upperMezzanine: {
+                        id: 'upperMezzanine',
+                        x: 0, y: 3, width: 6, height: 3,
+                        connections: ['upperBedroom', 'stairShaft'],
+                        temperature: 22,
+                        airParticles: []
+                    },
+                    upperBedroom: {
+                        id: 'upperBedroom', 
+                        x: 6, y: 3, width: 3, height: 3,
+                        connections: ['upperMezzanine'],
+                        temperature: 22,
+                        airParticles: []
+                    },
+                    lowerFloor: {
+                        id: 'lowerFloor',
+                        x: 0, y: 0, width: 9, height: 3,
+                        connections: [],
+                        temperature: 22,
+                        airParticles: []
+                    }
+                };
+                
+                // Openings
+                this.openings = {
+                    bedroomDoor: {
+                        fromZone: 'upperMezzanine',
+                        toZone: 'upperBedroom',
+                        x: 6, y: 3, width: 0.8, height: 2.1,
+                        isOpen: true
+                    },
+                    leftWindow: {
+                        fromZone: 'lowerFloor',
+                        toZone: 'outside',
+                        x: 0, y: 0.5, width: 0.1, height: 1.5,
+                        isOpen: false
+                    },
+                    rightWindow: {
+                        fromZone: 'lowerFloor', 
+                        toZone: 'outside',
+                        x: 8.9, y: 0.5, width: 0.1, height: 1.5,
+                        isOpen: false
+                    }
+                };
+                
+                // Stair opening (just coordinates for collision detection)
+                this.stairOpening = {
+                    x: 4.9, y: 2.9, width: 1.2, height: 0.2
+                };
+                
+                // AC Unit with extended tube
+                this.acUnit = {
+                    zone: 'upperMezzanine',
+                    x: 0.2, y: 4, width: 0.6, height: 0.3, // 1m above floor (y=4)
+                    temperature: 16,
+                    flowStrength: 0.5,
+                    isActive: true,
+                    direction: { x: 1, y: 0 }, // Blow horizontally to the right
+                    // Extended tube for particle guidance
+                    tube: {
+                        x: 0.8, y: 4.05, width: 0.4, height: 0.2 // Shorter tube extension
+                    }
+                };
+                
+                // Fans
+                this.fans = {
+                    stairFan: {
+                        id: 'stairFan',
+                        zone: 'upperMezzanine',
+                        x: 5.3, y: 5.5, width: 0.4, height: 0.4, // Directly above stair opening center
+                        direction: { x: 0, y: -1 }, // Pointing straight down
+                        flowStrength: 0.5,
+                        isActive: false,
+                        temperature: 22, // Ambient temperature (just moves air)
+                        duct: {
+                            x: 5.35, y: 5.1, width: 0.3, height: 0.4 // Downward duct
+                        }
+                    },
+                    bedroomFan: {
+                        id: 'bedroomFan',
+                        zone: 'upperBedroom',
+                        x: 8.5, y: 4.5, width: 0.3, height: 0.3, // Back wall of bedroom
+                        direction: { x: -1, y: 0 }, // Pointing toward bedroom door (left)
+                        flowStrength: 0.5,
+                        isActive: false,
+                        temperature: 22, // Ambient temperature
+                        duct: {
+                            x: 8.0, y: 4.55, width: 0.5, height: 0.2 // Leftward duct
+                        }
+                    }
+                };
+            }
+            
+            getZoneAtPoint(x, y) {
+                // Special handling for floor boundary - particles can only cross floors through stair opening
+                if (y > 2.95 && y < 3.05) {
+                    // At floor level - only valid in stair opening
+                    if (x >= this.stairOpening.x && x <= this.stairOpening.x + this.stairOpening.width) {
+                        // In stair opening - allow movement between floors
+                        return y < 3 ? this.zones.lowerFloor : this.zones.upperMezzanine;
+                    }
+                    return null; // Invalid position at floor level outside opening
+                }
+                
+                for (const zone of Object.values(this.zones)) {
+                    if (x >= zone.x && x <= zone.x + zone.width &&
+                        y >= zone.y && y <= zone.y + zone.height) {
+                        return zone;
+                    }
+                }
+                return null;
+            }
+            
+            getConnectedZones(zoneId) {
+                const zone = this.zones[zoneId];
+                if (!zone) return [];
+                
+                return zone.connections.map(id => this.zones[id]).filter(Boolean);
+            }
+            
+            isValidPosition(x, y) {
+                // Check if point is inside apartment bounds
+                if (x < 0 || x > this.width || y < 0 || y > this.height) {
+                    return false;
+                }
+                
+                // Check if point is inside a valid zone
+                return this.getZoneAtPoint(x, y) !== null;
+            }
+            
+            getOpeningsBetweenZones(zoneA, zoneB) {
+                return Object.values(this.openings).filter(opening =>
+                    (opening.fromZone === zoneA && opening.toZone === zoneB) ||
+                    (opening.fromZone === zoneB && opening.toZone === zoneA)
+                );
+            }
+            
+            updateOpeningState(openingName, isOpen) {
+                if (this.openings[openingName]) {
+                    this.openings[openingName].isOpen = isOpen;
+                }
+            }
+            
+            updateACSettings(temperature, flowStrength) {
+                this.acUnit.temperature = temperature;
+                this.acUnit.flowStrength = flowStrength;
+            }
+            
+            getAverageTemperatureInZone(zoneId) {
+                const zone = this.zones[zoneId];
+                if (!zone || zone.airParticles.length === 0) {
+                    return zone.temperature;
+                }
+                
+                const sum = zone.airParticles.reduce((acc, particle) => acc + particle.temperature, 0);
+                return sum / zone.airParticles.length;
+            }
+        }
+
+        // AirParticle.js embedded
+        class AirParticle {
+            constructor(x, y, temperature = 22, velocity = { x: 0, y: 0 }) {
+                this.x = x;
+                this.y = y;
+                this.temperature = temperature;
+                this.velocity = velocity;
+                this.age = 0;
+                this.maxAge = 1200; // Particle lifetime in frames (20 seconds at 60fps)
+                this.mass = this.calculateMass(temperature);
+                this.id = Math.random().toString(36).substr(2, 9);
+                this.zone = null; // Will be set by apartment
+            }
+            
+            calculateMass(temperature) {
+                // Cold air is denser, warm air is lighter
+                // Base mass at 20°C, adjusted by temperature
+                const baseMass = 1.0;
+                const tempEffect = (20 - temperature) * 0.05; // 5% change per degree
+                return Math.max(0.1, baseMass + tempEffect);
+            }
+            
+            update(dt, apartment, ambientTemp = 22) {
+                this.age += 1;
+                
+                // Update mass based on current temperature
+                this.mass = this.calculateMass(this.temperature);
+                
+                // Apply buoyancy (cold air sinks, warm air rises) - but reduced for fast-moving particles
+                const speed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.y * this.velocity.y);
+                const momentumFactor = Math.max(0.1, 1 - speed * 0.5); // Reduce physics effects for fast particles
+                
+                const buoyancyForce = (ambientTemp - this.temperature) * 0.02 * momentumFactor;
+                this.velocity.y += buoyancyForce * dt;
+                
+                // Apply gravity effect for cold air - reduced for fast horizontal particles
+                if (this.temperature < ambientTemp) {
+                    this.velocity.y -= 0.1 * dt * momentumFactor;
+                }
+                
+                // Air resistance/friction
+                this.velocity.x *= 0.99;
+                this.velocity.y *= 0.99;
+                
+                // Update position
+                this.x += this.velocity.x * dt;
+                this.y += this.velocity.y * dt;
+                
+                // Temperature mixing with environment (gradual)
+                const tempMixingRate = 0.001;
+                const tempDiff = ambientTemp - this.temperature;
+                this.temperature += tempDiff * tempMixingRate;
+                
+                // Boundary checks
+                this.handleBoundaries(apartment);
+                
+                return this.age < this.maxAge;
+            }
+            
+            handleBoundaries(apartment) {
+                // Check if particle is still in a valid zone
+                const currentZone = apartment.getZoneAtPoint(this.x, this.y);
+                
+                if (!currentZone) {
+                    // Particle is outside valid zones, try to bounce back
+                    this.bounceFromWalls(apartment);
+                } else {
+                    this.zone = currentZone.id;
+                }
+                
+                // Handle window openings (particles can escape)
+                this.handleWindowEscape(apartment);
+            }
+            
+            bounceFromWalls(apartment) {
+                // Simple wall collision - bounce off apartment boundaries
+                if (this.x <= 0) {
+                    this.x = 0;
+                    this.velocity.x = Math.abs(this.velocity.x) * 0.3;
+                }
+                if (this.x >= apartment.width) {
+                    this.x = apartment.width;
+                    this.velocity.x = -Math.abs(this.velocity.x) * 0.3;
+                }
+                if (this.y <= 0) {
+                    this.y = 0;
+                    this.velocity.y = Math.abs(this.velocity.y) * 0.3;
+                }
+                if (this.y >= apartment.height) {
+                    this.y = apartment.height;
+                    this.velocity.y = -Math.abs(this.velocity.y) * 0.3;
+                }
+                
+                // Handle floor separation (particles can't pass through solid floor)
+                // Floor exists everywhere except in the stair opening
+                const opening = apartment.stairOpening;
+                const inStairOpening = (this.x >= opening.x && this.x <= opening.x + opening.width);
+                
+                if (!inStairOpening) {
+                    // Outside stair opening - solid floor at y=3
+                    if (this.y > 2.95 && this.y < 3.05) {
+                        // Particle is at floor level, bounce it to correct side
+                        if (this.velocity.y > 0) {
+                            // Moving up from lower floor
+                            this.y = 2.95;
+                            this.velocity.y = -Math.abs(this.velocity.y) * 0.3;
+                        } else {
+                            // Moving down from upper floor  
+                            this.y = 3.05;
+                            this.velocity.y = Math.abs(this.velocity.y) * 0.3;
+                        }
+                    } else if (this.y > 3 && this.y < 3.1) {
+                        // Particle leaked through to upper side, push it back up
+                        this.y = 3.05;
+                        this.velocity.y = Math.abs(this.velocity.y) * 0.5;
+                    } else if (this.y < 3 && this.y > 2.9) {
+                        // Particle leaked through to lower side, push it back down
+                        this.y = 2.95;
+                        this.velocity.y = -Math.abs(this.velocity.y) * 0.5;
+                    }
+                }
+            }
+            
+            handleWindowEscape(apartment) {
+                // Check if particle is near open windows and should escape
+                for (const [name, opening] of Object.entries(apartment.openings)) {
+                    if (opening.isOpen && opening.toZone === 'outside') {
+                        const inWindow = (
+                            this.x >= opening.x - 0.1 && 
+                            this.x <= opening.x + opening.width + 0.1 &&
+                            this.y >= opening.y && 
+                            this.y <= opening.y + opening.height
+                        );
+                        
+                        if (inWindow) {
+                            // Mark particle for removal (escaped through window)
+                            this.age = this.maxAge;
+                            return;
+                        }
+                    }
+                }
+                
+                // Handle bedroom wall (vertical wall at x=6, from y=3 to y=6)
+                if (this.x > 5.9 && this.x < 6.1 && this.y >= 3 && this.y <= 6) {
+                    // Check if door is open and particle is in door area (y=3 to y=5.1)
+                    const doorOpen = apartment.openings.bedroomDoor.isOpen;
+                    const inDoorArea = (this.y >= 3 && this.y <= 5.1);
+                    
+                    if (!doorOpen || !inDoorArea) {
+                        // Solid wall - bounce particle back
+                        if (this.velocity.x > 0) {
+                            // Moving right (mezzanine to bedroom), bounce back left
+                            this.x = 5.9;
+                            this.velocity.x = -Math.abs(this.velocity.x) * 0.3;
+                        } else {
+                            // Moving left (bedroom to mezzanine), bounce back right
+                            this.x = 6.1;
+                            this.velocity.x = Math.abs(this.velocity.x) * 0.3;
+                        }
+                    }
+                }
+                
+                // Handle AC unit tube walls - prevent particles from escaping through sides/back
+                const ac = apartment.acUnit;
+                const tube = ac.tube;
+                
+                // Check if particle is in main AC unit
+                const inMainUnit = (this.x >= ac.x && this.x <= ac.x + ac.width &&
+                                   this.y >= ac.y && this.y <= ac.y + ac.height);
+                
+                // Check if particle is in extended tube
+                const inExtendedTube = (this.x >= tube.x && this.x <= tube.x + tube.width &&
+                                       this.y >= tube.y && this.y <= tube.y + tube.height);
+                
+                if (inMainUnit || inExtendedTube) {
+                    // Determine which section we're in for appropriate centering
+                    let centerY, sectionTop, sectionBottom;
+                    
+                    if (inMainUnit) {
+                        centerY = ac.y + ac.height / 2;
+                        sectionTop = ac.y + ac.height;
+                        sectionBottom = ac.y;
+                    } else {
+                        centerY = tube.y + tube.height / 2;
+                        sectionTop = tube.y + tube.height;
+                        sectionBottom = tube.y;
+                    }
+                    
+                    // Strong force toward outlet
+                    const forceToOutlet = 2.5;
+                    this.velocity.x = Math.max(this.velocity.x, forceToOutlet);
+                    
+                    // Keep particle centered vertically within current section
+                    const allowedDeviation = inExtendedTube ? tube.height * 0.2 : ac.height * 0.3;
+                    if (Math.abs(this.y - centerY) > allowedDeviation) {
+                        const correctionForce = (centerY - this.y) * 0.8;
+                        this.velocity.y += correctionForce;
+                    }
+                    
+                    // Bounce off tube walls
+                    if (this.y <= sectionBottom) {
+                        this.y = sectionBottom + 0.01;
+                        this.velocity.y = Math.abs(this.velocity.y) * 0.1;
+                    } else if (this.y >= sectionTop) {
+                        this.y = sectionTop - 0.01;
+                        this.velocity.y = -Math.abs(this.velocity.y) * 0.1;
+                    }
+                    
+                    // Prevent backward movement
+                    if (inMainUnit && this.x <= ac.x) {
+                        this.x = ac.x + 0.01;
+                        this.velocity.x = Math.abs(this.velocity.x) * 1.5;
+                    } else if (inExtendedTube && this.x <= tube.x) {
+                        this.x = tube.x + 0.01;
+                        this.velocity.x = Math.abs(this.velocity.x) * 1.2;
+                    }
+                }
+                
+                // Handle fan ducts - keep particles flowing in the right direction
+                Object.values(apartment.fans).forEach(fan => {
+                    if (!fan.isActive || !fan.duct) return;
+                    
+                    const duct = fan.duct;
+                    const inDuct = (this.x >= duct.x && this.x <= duct.x + duct.width &&
+                                   this.y >= duct.y && this.y <= duct.y + duct.height);
+                    
+                    if (inDuct) {
+                        // Strong directional force based on fan direction
+                        const forceStrength = 3.0;
+                        this.velocity.x += fan.direction.x * forceStrength;
+                        this.velocity.y += fan.direction.y * forceStrength;
+                        
+                        // Bounce off duct walls
+                        if (this.x <= duct.x) {
+                            this.x = duct.x + 0.01;
+                            this.velocity.x = Math.abs(this.velocity.x);
+                        } else if (this.x >= duct.x + duct.width) {
+                            this.x = duct.x + duct.width - 0.01;
+                            this.velocity.x = -Math.abs(this.velocity.x);
+                        }
+                        
+                        if (this.y <= duct.y) {
+                            this.y = duct.y + 0.01;
+                            this.velocity.y = Math.abs(this.velocity.y);
+                        } else if (this.y >= duct.y + duct.height) {
+                            this.y = duct.y + duct.height - 0.01;
+                            this.velocity.y = -Math.abs(this.velocity.y);
+                        }
+                        
+                        // Keep particles centered in the duct
+                        const ductCenterX = duct.x + duct.width / 2;
+                        const ductCenterY = duct.y + duct.height / 2;
+                        
+                        if (Math.abs(this.x - ductCenterX) > duct.width * 0.3) {
+                            const correctionX = (ductCenterX - this.x) * 0.5;
+                            this.velocity.x += correctionX;
+                        }
+                        
+                        if (Math.abs(this.y - ductCenterY) > duct.height * 0.3) {
+                            const correctionY = (ductCenterY - this.y) * 0.5;
+                            this.velocity.y += correctionY;
+                        }
+                    }
+                });
+            }
+            
+            addForce(forceX, forceY) {
+                this.velocity.x += forceX;
+                this.velocity.y += forceY;
+                
+                // Limit velocity to prevent unrealistic speeds
+                const maxVel = 5.0;
+                const speed = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.y * this.velocity.y);
+                if (speed > maxVel) {
+                    this.velocity.x = (this.velocity.x / speed) * maxVel;
+                    this.velocity.y = (this.velocity.y / speed) * maxVel;
+                }
+            }
+            
+            setTemperature(newTemp) {
+                this.temperature = newTemp;
+                this.mass = this.calculateMass(newTemp);
+            }
+            
+            distanceTo(other) {
+                const dx = this.x - other.x;
+                const dy = this.y - other.y;
+                return Math.sqrt(dx * dx + dy * dy);
+            }
+            
+            // Get particle color based on temperature for visualization
+            getColor() {
+                // Map temperature to color (blue for cold, red/orange for warm)
+                const minTemp = 10;
+                const maxTemp = 30;
+                const normalizedTemp = (this.temperature - minTemp) / (maxTemp - minTemp);
+                
+                if (normalizedTemp <= 0.5) {
+                    // Cold: blue to cyan
+                    const intensity = Math.floor((1 - normalizedTemp * 2) * 255);
+                    return `rgb(${intensity}, ${intensity}, 255)`;
+                } else {
+                    // Warm: yellow to red
+                    const intensity = Math.floor((normalizedTemp - 0.5) * 2 * 255);
+                    return `rgb(255, ${255 - intensity}, 0)`;
+                }
+            }
+        }
+
+        // FlowSolver.js embedded
+        class FlowSolver {
+            constructor(apartment, AirParticle) {
+                this.apartment = apartment;
+                this.ambientTemperature = 22;
+                this.AirParticle = AirParticle;
+            }
+            
+            update(particles, dt) {
+                // Clear zone particle arrays
+                Object.values(this.apartment.zones).forEach(zone => {
+                    zone.airParticles = [];
+                });
+                
+                // Assign particles to zones
+                particles.forEach(particle => {
+                    const zone = this.apartment.getZoneAtPoint(particle.x, particle.y);
+                    if (zone) {
+                        zone.airParticles.push(particle);
+                        particle.zone = zone.id;
+                    }
+                });
+                
+                // Update zone temperatures based on particles
+                this.updateZoneTemperatures();
+                
+                // Calculate inter-zone flows
+                this.calculateInterZoneFlows(dt);
+                
+                // Apply AC unit effects
+                this.applyACEffects(particles, dt);
+                
+                // Handle particle interactions
+                this.handleParticleInteractions(particles, dt);
+            }
+            
+            updateZoneTemperatures() {
+                Object.values(this.apartment.zones).forEach(zone => {
+                    if (zone.airParticles.length > 0) {
+                        const avgTemp = zone.airParticles.reduce((sum, p) => sum + p.temperature, 0) / zone.airParticles.length;
+                        // Smooth temperature change
+                        zone.temperature = zone.temperature * 0.95 + avgTemp * 0.05;
+                    } else {
+                        // Gradually return to ambient if no particles
+                        zone.temperature = zone.temperature * 0.999 + this.ambientTemperature * 0.001;
+                    }
+                });
+            }
+            
+            calculateInterZoneFlows(dt) {
+                Object.values(this.apartment.zones).forEach(zone => {
+                    zone.connections.forEach(connectedZoneId => {
+                        const connectedZone = this.apartment.zones[connectedZoneId];
+                        if (!connectedZone) return;
+                        
+                        // Check if there's an opening between zones
+                        const openings = this.apartment.getOpeningsBetweenZones(zone.id, connectedZoneId);
+                        let totalFlowArea = 0;
+                        
+                        openings.forEach(opening => {
+                            if (opening.isOpen) {
+                                totalFlowArea += opening.width * opening.height;
+                            }
+                        });
+                        
+                        // For stair shaft, always allow some flow
+                        if ((zone.id === 'stairShaft' || connectedZoneId === 'stairShaft') && totalFlowArea === 0) {
+                            totalFlowArea = 1.0; // Default stair opening
+                        }
+                        
+                        if (totalFlowArea > 0) {
+                            this.createInterZoneFlow(zone, connectedZone, totalFlowArea, dt);
+                        }
+                    });
+                });
+            }
+            
+            createInterZoneFlow(zoneA, zoneB, flowArea, dt) {
+                // Calculate pressure difference based on temperature difference
+                const tempDiff = zoneA.temperature - zoneB.temperature;
+                const pressureDiff = tempDiff * 0.1; // Simplified pressure calculation
+                
+                // Cold air flows toward warm air (density-driven flow)
+                const flowDirection = tempDiff > 0 ? 1 : -1;
+                const flowStrength = Math.abs(pressureDiff) * flowArea * dt * 0.1;
+                
+                // Move some particles between zones if pressure difference exists
+                if (Math.abs(tempDiff) > 0.5 && flowStrength > 0.01) {
+                    this.moveParticlesBetweenZones(zoneA, zoneB, flowDirection, flowStrength);
+                }
+            }
+            
+            moveParticlesBetweenZones(zoneA, zoneB, flowDirection, flowStrength) {
+                const sourceZone = flowDirection > 0 ? zoneA : zoneB;
+                const targetZone = flowDirection > 0 ? zoneB : zoneA;
+                
+                if (sourceZone.airParticles.length === 0) return;
+                
+                // Calculate how many particles to move
+                const particlesToMove = Math.min(
+                    Math.floor(sourceZone.airParticles.length * flowStrength * 0.1),
+                    Math.max(1, Math.floor(sourceZone.airParticles.length * 0.05))
+                );
+                
+                for (let i = 0; i < particlesToMove; i++) {
+                    const particle = sourceZone.airParticles[Math.floor(Math.random() * sourceZone.airParticles.length)];
+                    if (particle) {
+                        // Move particle toward target zone
+                        const targetCenter = {
+                            x: targetZone.x + targetZone.width / 2,
+                            y: targetZone.y + targetZone.height / 2
+                        };
+                        
+                        const dx = targetCenter.x - particle.x;
+                        const dy = targetCenter.y - particle.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (distance > 0) {
+                            const force = flowStrength * 0.5;
+                            particle.addForce(
+                                (dx / distance) * force,
+                                (dy / distance) * force
+                            );
+                        }
+                    }
+                }
+            }
+            
+            applyACEffects(particles, dt) {
+                if (!this.apartment.acUnit.isActive) return;
+                
+                const ac = this.apartment.acUnit;
+                const acZone = this.apartment.zones[ac.zone];
+                if (!acZone) return;
+                
+                // Create new cold air particles near AC unit
+                const particlesPerFrame = Math.floor(ac.flowStrength * 2);
+                
+                for (let i = 0; i < particlesPerFrame; i++) {
+                    if (particles.length < 1000) { // Limit total particles
+                        const newParticle = this.createACParticle(ac, this.AirParticle);
+                        particles.push(newParticle);
+                    }
+                }
+                
+                // Apply cooling effect to particles in the AC airflow path (including extended tube)
+                acZone.airParticles.forEach(particle => {
+                    const tube = ac.tube;
+                    // Check if particle is in the AC's extended airflow path
+                    const isInAirflowPath = (
+                        particle.x >= ac.x && // To the right of AC start
+                        particle.x <= tube.x + tube.width + 1.0 && // Including extended tube + 1m beyond
+                        particle.y >= tube.y - 0.1 && // Within narrow vertical band of tube
+                        particle.y <= tube.y + tube.height + 0.1
+                    );
+                    
+                    if (isInAirflowPath) {
+                        // Distance from AC outlet center
+                        const dx = particle.x - (ac.x + ac.width);
+                        const dy = particle.y - (ac.y + ac.height / 2);
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (distance < 2.0) { // Within AC influence range
+                            const coolingEffect = Math.max(0, (2.0 - distance) / 2.0) * ac.flowStrength * dt * 0.8;
+                            const targetTemp = ac.temperature;
+                            particle.temperature = particle.temperature * (1 - coolingEffect) + targetTemp * coolingEffect;
+                            
+                            // Add strong horizontal push to the right (no vertical component)
+                            const pushForce = ac.flowStrength * 0.3 * (2.0 - distance) / 2.0;
+                            particle.addForce(pushForce, 0); // Pure horizontal force only
+                        }
+                    }
+                });
+            }
+            
+            createACParticle(ac, AirParticle) {
+                // Create particles at the right edge of AC unit for laser-straight beam
+                const x = ac.x + ac.width; // Start at right edge of AC
+                const y = ac.y + ac.height/2; // Always at exact center
+                
+                // Create ultra-narrow beam (±1 degree maximum)
+                const maxAngleDegrees = 1; // Ultra-narrow beam
+                const angleRadians = (Math.random() - 0.5) * 2 * (maxAngleDegrees * Math.PI / 180);
+                
+                const speed = ac.flowStrength * 1.5;
+                const particle = new AirParticle(
+                    x, y, ac.temperature, 
+                    { 
+                        x: speed * Math.cos(angleRadians), // 99.9% horizontal
+                        y: speed * Math.sin(angleRadians)  // Tiny vertical component (±1°)
+                    }
+                );
+                
+                return particle;
+            }
+            
+            handleParticleInteractions(particles, dt) {
+                // Simple particle-to-particle temperature mixing
+                for (let i = 0; i < particles.length; i++) {
+                    for (let j = i + 1; j < particles.length; j++) {
+                        const particleA = particles[i];
+                        const particleB = particles[j];
+                        
+                        const distance = particleA.distanceTo(particleB);
+                        
+                        if (distance < 0.3) { // Close enough to interact
+                            // Temperature mixing
+                            const tempDiff = particleA.temperature - particleB.temperature;
+                            const mixingRate = 0.1 * dt;
+                            
+                            particleA.temperature -= tempDiff * mixingRate;
+                            particleB.temperature += tempDiff * mixingRate;
+                            
+                            // Simple collision response
+                            const repulsion = 0.05;
+                            const dx = (particleA.x - particleB.x) / distance;
+                            const dy = (particleA.y - particleB.y) / distance;
+                            
+                            particleA.addForce(dx * repulsion, dy * repulsion);
+                            particleB.addForce(-dx * repulsion, -dy * repulsion);
+                        }
+                    }
+                }
+            }
+            
+            setAmbientTemperature(temp) {
+                this.ambientTemperature = temp;
+            }
+        }
+
+        // CanvasRenderer.js embedded
+        class CanvasRenderer {
+            constructor(canvasId, apartment) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.apartment = apartment;
+                
+                // Scale factors for visualization
+                this.scaleX = this.canvas.width / apartment.width;   // pixels per meter
+                this.scaleY = this.canvas.height / apartment.height;
+                
+                this.showVectors = false;
+                this.showTemperatureField = true;
+                
+                this.setupInteraction();
+            }
+            
+            setupInteraction() {
+                let isDrawing = false;
+                
+                this.canvas.addEventListener('mousedown', (e) => {
+                    isDrawing = true;
+                    this.handleCanvasInteraction(e);
+                });
+                
+                this.canvas.addEventListener('mousemove', (e) => {
+                    if (isDrawing) {
+                        this.handleCanvasInteraction(e);
+                    }
+                });
+                
+                this.canvas.addEventListener('mouseup', () => {
+                    isDrawing = false;
+                });
+                
+                this.canvas.addEventListener('mouseleave', () => {
+                    isDrawing = false;
+                });
+            }
+            
+            handleCanvasInteraction(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = (e.clientX - rect.left) / this.scaleX;
+                const y = (this.canvas.height - (e.clientY - rect.top)) / this.scaleY; // Flip Y
+                
+                // Emit custom event for particle injection
+                const detail = {
+                    x: x,
+                    y: y,
+                    temperature: e.shiftKey ? 16 : 28, // Cold air with Shift, warm air otherwise
+                    velocity: e.altKey ? {
+                        x: (Math.random() - 0.5) * 2,
+                        y: (Math.random() - 0.5) * 2
+                    } : { x: 0, y: 0 }
+                };
+                
+                this.canvas.dispatchEvent(new CustomEvent('injectAir', { detail }));
+            }
+            
+            render(particles) {
+                // Clear canvas
+                this.ctx.fillStyle = '#000000';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Draw temperature field background
+                if (this.showTemperatureField) {
+                    this.drawTemperatureField();
+                }
+                
+                // Draw apartment structure
+                this.drawApartmentStructure();
+                
+                // Draw particles
+                this.drawParticles(particles);
+                
+                // Draw velocity vectors if enabled
+                if (this.showVectors) {
+                    this.drawVelocityVectors(particles);
+                }
+                
+                // Draw UI overlays
+                this.drawUIOverlays();
+            }
+            
+            drawTemperatureField() {
+                const gridSize = 20; // Temperature field resolution
+                const cellWidth = this.canvas.width / gridSize;
+                const cellHeight = this.canvas.height / gridSize;
+                
+                for (let i = 0; i < gridSize; i++) {
+                    for (let j = 0; j < gridSize; j++) {
+                        const x = (i / gridSize) * this.apartment.width;
+                        const y = (j / gridSize) * this.apartment.height;
+                        
+                        const zone = this.apartment.getZoneAtPoint(x, y);
+                        if (zone) {
+                            const temp = zone.temperature;
+                            const color = this.getTemperatureColor(temp);
+                            
+                            this.ctx.fillStyle = color;
+                            this.ctx.globalAlpha = 0.3;
+                            this.ctx.fillRect(
+                                i * cellWidth,
+                                this.canvas.height - (j + 1) * cellHeight,
+                                cellWidth,
+                                cellHeight
+                            );
+                        }
+                    }
+                }
+                this.ctx.globalAlpha = 1.0;
+            }
+            
+            drawApartmentStructure() {
+                this.ctx.strokeStyle = '#666666';
+                this.ctx.fillStyle = '#333333';
+                this.ctx.lineWidth = 2;
+                
+                // Draw zone boundaries (for debugging)
+                Object.values(this.apartment.zones).forEach(zone => {
+                    const x = zone.x * this.scaleX;
+                    const y = this.canvas.height - (zone.y + zone.height) * this.scaleY;
+                    const width = zone.width * this.scaleX;
+                    const height = zone.height * this.scaleY;
+                    
+                    this.ctx.strokeRect(x, y, width, height);
+                });
+                
+                // Draw floor separation (solid floor with stair opening)
+                this.ctx.fillStyle = '#444444';
+                this.ctx.lineWidth = 4;
+                this.ctx.strokeStyle = '#888888';
+                
+                // Left part of floor
+                this.ctx.fillRect(
+                    0, 
+                    this.canvas.height - 3 * this.scaleY - 5,
+                    4.9 * this.scaleX,
+                    10
+                );
+                
+                // Right part of floor
+                this.ctx.fillRect(
+                    6.1 * this.scaleX,
+                    this.canvas.height - 3 * this.scaleY - 5,
+                    (this.apartment.width - 6.1) * this.scaleX,
+                    10
+                );
+                
+                // Partition wall above bedroom door
+                this.ctx.fillRect(
+                    6 * this.scaleX,
+                    this.canvas.height - 6 * this.scaleY,
+                    0.1 * this.scaleX,
+                    (6 - 5.1) * this.scaleY // From door head to ceiling
+                );
+                
+                // AC Unit
+                this.drawACUnit();
+                
+                // Fans
+                this.drawFans();
+                
+                // Windows (if open)
+                this.drawWindows();
+                
+                // Labels
+                this.drawLabels();
+            }
+            
+            drawACUnit() {
+                const ac = this.apartment.acUnit;
+                const tube = ac.tube;
+                
+                // Main AC unit
+                const x = ac.x * this.scaleX;
+                const y = this.canvas.height - (ac.y + ac.height) * this.scaleY;
+                const width = ac.width * this.scaleX;
+                const height = ac.height * this.scaleY;
+                
+                // AC unit body
+                this.ctx.fillStyle = ac.isActive ? '#0066ff' : '#666666';
+                this.ctx.fillRect(x, y, width, height);
+                
+                // AC unit border
+                this.ctx.strokeStyle = '#ffffff';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(x, y, width, height);
+                
+                // Extended tube
+                const tubeX = tube.x * this.scaleX;
+                const tubeY = this.canvas.height - (tube.y + tube.height) * this.scaleY;
+                const tubeWidth = tube.width * this.scaleX;
+                const tubeHeight = tube.height * this.scaleY;
+                
+                // Tube body (slightly darker)
+                this.ctx.fillStyle = ac.isActive ? '#004499' : '#555555';
+                this.ctx.fillRect(tubeX, tubeY, tubeWidth, tubeHeight);
+                
+                // Tube border
+                this.ctx.strokeStyle = '#ffffff';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(tubeX, tubeY, tubeWidth, tubeHeight);
+                
+                // Draw connecting tube walls
+                this.ctx.strokeStyle = '#cccccc';
+                this.ctx.lineWidth = 1;
+                this.ctx.beginPath();
+                // Top wall connection
+                this.ctx.moveTo(x + width, y);
+                this.ctx.lineTo(tubeX, tubeY);
+                // Bottom wall connection  
+                this.ctx.moveTo(x + width, y + height);
+                this.ctx.lineTo(tubeX, tubeY + tubeHeight);
+                this.ctx.stroke();
+                
+                // AC label
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = '8px Arial';
+                this.ctx.fillText('AC', x + width/4, y + height/2 + 2);
+                
+                // Tube label
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = '6px Arial';
+                this.ctx.fillText('VENT', tubeX + tubeWidth/4, tubeY + tubeHeight/2 + 1);
+            }
+            
+            drawFans() {
+                Object.values(this.apartment.fans).forEach(fan => {
+                    const x = fan.x * this.scaleX;
+                    const y = this.canvas.height - (fan.y + fan.height) * this.scaleY;
+                    const width = fan.width * this.scaleX;
+                    const height = fan.height * this.scaleY;
+                    
+                    // Fan body
+                    this.ctx.fillStyle = fan.isActive ? '#ff6600' : '#888888';
+                    this.ctx.fillRect(x, y, width, height);
+                    
+                    // Fan border
+                    this.ctx.strokeStyle = '#ffffff';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.strokeRect(x, y, width, height);
+                    
+                    // Fan blades (simple cross pattern)
+                    if (fan.isActive) {
+                        this.ctx.strokeStyle = '#ffaa66';
+                        this.ctx.lineWidth = 1;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(x, y);
+                        this.ctx.lineTo(x + width, y + height);
+                        this.ctx.moveTo(x + width, y);
+                        this.ctx.lineTo(x, y + height);
+                        this.ctx.stroke();
+                    }
+                    
+                    // Direction arrow
+                    this.ctx.strokeStyle = '#ffffff';
+                    this.ctx.lineWidth = 2;
+                    const centerX = x + width/2;
+                    const centerY = y + height/2;
+                    const arrowLength = Math.min(width, height) * 0.6;
+                    
+                    const endX = centerX + fan.direction.x * arrowLength;
+                    const endY = centerY - fan.direction.y * arrowLength; // Flip Y for canvas
+                    
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(centerX, centerY);
+                    this.ctx.lineTo(endX, endY);
+                    this.ctx.stroke();
+                    
+                    // Arrow head
+                    const angle = Math.atan2(centerY - endY, endX - centerX);
+                    const arrowHeadLength = 4;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(endX, endY);
+                    this.ctx.lineTo(
+                        endX - arrowHeadLength * Math.cos(angle - Math.PI/6),
+                        endY - arrowHeadLength * Math.sin(angle - Math.PI/6)
+                    );
+                    this.ctx.moveTo(endX, endY);
+                    this.ctx.lineTo(
+                        endX - arrowHeadLength * Math.cos(angle + Math.PI/6),
+                        endY - arrowHeadLength * Math.sin(angle + Math.PI/6)
+                    );
+                    this.ctx.stroke();
+                    
+                    // Fan label
+                    this.ctx.fillStyle = '#ffffff';
+                    this.ctx.font = '6px Arial';
+                    const label = fan.id === 'stairFan' ? 'FAN↓' : 'FAN←';
+                    this.ctx.fillText(label, x + 2, y + height - 2);
+                    
+                    // Draw fan duct if it exists
+                    if (fan.duct) {
+                        const ductX = fan.duct.x * this.scaleX;
+                        const ductY = this.canvas.height - (fan.duct.y + fan.duct.height) * this.scaleY;
+                        const ductWidth = fan.duct.width * this.scaleX;
+                        const ductHeight = fan.duct.height * this.scaleY;
+                        
+                        // Duct walls (darker than fan)
+                        this.ctx.fillStyle = fan.isActive ? '#cc4400' : '#666666';
+                        this.ctx.fillRect(ductX, ductY, ductWidth, ductHeight);
+                        
+                        // Duct border
+                        this.ctx.strokeStyle = '#ffffff';
+                        this.ctx.lineWidth = 1;
+                        this.ctx.strokeRect(ductX, ductY, ductWidth, ductHeight);
+                    }
+                });
+            }
+            
+            drawWindows() {
+                Object.entries(this.apartment.openings).forEach(([name, opening]) => {
+                    if (opening.toZone === 'outside' && opening.isOpen) {
+                        const x = opening.x * this.scaleX;
+                        const y = this.canvas.height - (opening.y + opening.height) * this.scaleY;
+                        const width = opening.width * this.scaleX;
+                        const height = opening.height * this.scaleY;
+                        
+                        // Window opening (green indicator)
+                        this.ctx.strokeStyle = '#00ff00';
+                        this.ctx.lineWidth = 3;
+                        this.ctx.strokeRect(x, y, width, height);
+                        
+                        // Arrow indicating airflow direction
+                        this.ctx.fillStyle = '#00ff00';
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(x + width/2, y + height/2);
+                        this.ctx.lineTo(x + width/2 + 10, y + height/2);
+                        this.ctx.lineTo(x + width/2 + 7, y + height/2 - 3);
+                        this.ctx.moveTo(x + width/2 + 10, y + height/2);
+                        this.ctx.lineTo(x + width/2 + 7, y + height/2 + 3);
+                        this.ctx.stroke();
+                    }
+                });
+            }
+            
+            drawLabels() {
+                this.ctx.fillStyle = '#cccccc';
+                this.ctx.font = '12px Arial';
+                
+                // Zone labels
+                this.ctx.fillText('Mezzanine', 10, 30);
+                this.ctx.fillText('Bedroom', 6.2 * this.scaleX, 30);
+                this.ctx.fillText('Lower Floor (Continuous)', 10, this.canvas.height - 10);
+                this.ctx.fillText('Stair', 4.7 * this.scaleX, this.canvas.height / 2);
+            }
+            
+            drawParticles(particles) {
+                particles.forEach(particle => {
+                    const x = particle.x * this.scaleX;
+                    const y = this.canvas.height - particle.y * this.scaleY;
+                    
+                    // Particle size based on temperature difference from ambient
+                    const tempDiff = Math.abs(particle.temperature - 22);
+                    const size = Math.max(2, Math.min(6, 2 + tempDiff * 0.3));
+                    
+                    // Particle color based on temperature
+                    this.ctx.fillStyle = particle.getColor();
+                    this.ctx.globalAlpha = 0.8;
+                    
+                    this.ctx.beginPath();
+                    this.ctx.arc(x, y, size, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    
+                    this.ctx.globalAlpha = 1.0;
+                });
+            }
+            
+            drawVelocityVectors(particles) {
+                this.ctx.strokeStyle = '#ffffff';
+                this.ctx.lineWidth = 1;
+                
+                particles.forEach(particle => {
+                    if (Math.random() > 0.1) return; // Only show 10% of vectors for clarity
+                    
+                    const x = particle.x * this.scaleX;
+                    const y = this.canvas.height - particle.y * this.scaleY;
+                    
+                    const velScale = 20;
+                    const endX = x + particle.velocity.x * velScale;
+                    const endY = y - particle.velocity.y * velScale;
+                    
+                    // Only draw if velocity is significant
+                    const speed = Math.sqrt(particle.velocity.x ** 2 + particle.velocity.y ** 2);
+                    if (speed > 0.01) {
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(x, y);
+                        this.ctx.lineTo(endX, endY);
+                        this.ctx.stroke();
+                        
+                        // Arrowhead
+                        const angle = Math.atan2(endY - y, endX - x);
+                        const arrowLength = 5;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(endX, endY);
+                        this.ctx.lineTo(
+                            endX - arrowLength * Math.cos(angle - Math.PI/6),
+                            endY - arrowLength * Math.sin(angle - Math.PI/6)
+                        );
+                        this.ctx.moveTo(endX, endY);
+                        this.ctx.lineTo(
+                            endX - arrowLength * Math.cos(angle + Math.PI/6),
+                            endY - arrowLength * Math.sin(angle + Math.PI/6)
+                        );
+                        this.ctx.stroke();
+                    }
+                });
+            }
+            
+            drawUIOverlays() {
+                // Temperature scale legend
+                this.drawTemperatureLegend();
+            }
+            
+            drawTemperatureLegend() {
+                const legendX = this.canvas.width - 120;
+                const legendY = 20;
+                const legendWidth = 100;
+                const legendHeight = 15;
+                
+                // Temperature gradient
+                const gradient = this.ctx.createLinearGradient(legendX, 0, legendX + legendWidth, 0);
+                gradient.addColorStop(0, this.getTemperatureColor(10));
+                gradient.addColorStop(0.5, this.getTemperatureColor(22));
+                gradient.addColorStop(1, this.getTemperatureColor(30));
+                
+                this.ctx.fillStyle = gradient;
+                this.ctx.fillRect(legendX, legendY, legendWidth, legendHeight);
+                
+                this.ctx.strokeStyle = '#ffffff';
+                this.ctx.strokeRect(legendX, legendY, legendWidth, legendHeight);
+                
+                // Labels
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.font = '10px Arial';
+                this.ctx.fillText('10°C', legendX, legendY + legendHeight + 12);
+                this.ctx.fillText('30°C', legendX + legendWidth - 25, legendY + legendHeight + 12);
+            }
+            
+            getTemperatureColor(temperature) {
+                // Map temperature to color (blue for cold, red for warm)
+                const minTemp = 10;
+                const maxTemp = 30;
+                const normalizedTemp = Math.max(0, Math.min(1, (temperature - minTemp) / (maxTemp - minTemp)));
+                
+                if (normalizedTemp <= 0.5) {
+                    // Cold: blue to cyan
+                    const intensity = Math.floor((1 - normalizedTemp * 2) * 255);
+                    return `rgb(0, ${255 - intensity}, 255)`;
+                } else {
+                    // Warm: yellow to red
+                    const intensity = Math.floor((normalizedTemp - 0.5) * 2 * 255);
+                    return `rgb(255, ${255 - intensity}, 0)`;
+                }
+            }
+            
+            toggleVectors() {
+                this.showVectors = !this.showVectors;
+                return this.showVectors;
+            }
+            
+            toggleTemperatureField() {
+                this.showTemperatureField = !this.showTemperatureField;
+                return this.showTemperatureField;
+            }
+        }
+
+        // Main FluidSimulation class - embedded main.js
+        class FluidSimulation {
+            constructor() {
+                this.apartment = new Apartment();
+                this.particles = [];
+                this.flowSolver = new FlowSolver(this.apartment, AirParticle);
+                this.renderer = new CanvasRenderer('canvas', this.apartment);
+                
+                this.isRunning = true;
+                this.lastTime = 0;
+                this.frameCount = 0;
+                
+                this.settings = {
+                    ambientTemp: 22,
+                    acTemp: 16,
+                    acFlow: 50,
+                    particleDensity: 100,
+                    flowSpeed: 1.0
+                };
+                
+                this.setupControls();
+                this.setupCanvasInteraction();
+                this.initializeParticles();
+                this.animate();
+            }
+            
+            setupControls() {
+                // Temperature controls
+                const ambientTempSlider = document.getElementById('ambientTemp');
+                const acTempSlider = document.getElementById('acTemp');
+                const ambientTempValue = document.getElementById('ambientTempValue');
+                const acTempValue = document.getElementById('acTempValue');
+                
+                ambientTempSlider.addEventListener('input', (e) => {
+                    this.settings.ambientTemp = parseFloat(e.target.value);
+                    ambientTempValue.textContent = `${this.settings.ambientTemp}°C`;
+                    this.flowSolver.setAmbientTemperature(this.settings.ambientTemp);
+                });
+                
+                acTempSlider.addEventListener('input', (e) => {
+                    this.settings.acTemp = parseFloat(e.target.value);
+                    acTempValue.textContent = `${this.settings.acTemp}°C`;
+                    this.apartment.updateACSettings(this.settings.acTemp, this.settings.acFlow / 100);
+                });
+                
+                // AC and openings controls
+                const acFlowSlider = document.getElementById('acFlow');
+                const acFlowValue = document.getElementById('acFlowValue');
+                
+                acFlowSlider.addEventListener('input', (e) => {
+                    this.settings.acFlow = parseInt(e.target.value);
+                    acFlowValue.textContent = `${this.settings.acFlow}%`;
+                    this.apartment.updateACSettings(this.settings.acTemp, this.settings.acFlow / 100);
+                });
+                
+                // Opening controls
+                document.getElementById('bedroomDoor').addEventListener('change', (e) => {
+                    this.apartment.updateOpeningState('bedroomDoor', e.target.checked);
+                });
+                
+                document.getElementById('leftWindow').addEventListener('change', (e) => {
+                    this.apartment.updateOpeningState('leftWindow', e.target.checked);
+                });
+                
+                document.getElementById('rightWindow').addEventListener('change', (e) => {
+                    this.apartment.updateOpeningState('rightWindow', e.target.checked);
+                });
+                
+                const windowHeightSlider = document.getElementById('windowHeight');
+                const windowHeightValue = document.getElementById('windowHeightValue');
+                
+                windowHeightSlider.addEventListener('input', (e) => {
+                    const height = parseInt(e.target.value);
+                    windowHeightValue.textContent = `${height}%`;
+                    
+                    // Update window heights
+                    const newHeight = (height / 100) * 2.0; // Max 2m window height
+                    this.apartment.openings.leftWindow.height = newHeight;
+                    this.apartment.openings.rightWindow.height = newHeight;
+                });
+                
+                // Fan controls
+                document.getElementById('stairFan').addEventListener('change', (e) => {
+                    this.apartment.fans.stairFan.isActive = e.target.checked;
+                });
+                
+                document.getElementById('bedroomFan').addEventListener('change', (e) => {
+                    this.apartment.fans.bedroomFan.isActive = e.target.checked;
+                });
+                
+                const fanSpeedSlider = document.getElementById('fanSpeed');
+                const fanSpeedValue = document.getElementById('fanSpeedValue');
+                
+                fanSpeedSlider.addEventListener('input', (e) => {
+                    const speed = parseInt(e.target.value);
+                    fanSpeedValue.textContent = `${speed}%`;
+                    const flowStrength = speed / 100;
+                    
+                    // Update both fans
+                    this.apartment.fans.stairFan.flowStrength = flowStrength;
+                    this.apartment.fans.bedroomFan.flowStrength = flowStrength;
+                });
+                
+                // Simulation controls
+                const particleDensitySlider = document.getElementById('particleDensity');
+                const particleDensityValue = document.getElementById('particleDensityValue');
+                
+                particleDensitySlider.addEventListener('input', (e) => {
+                    this.settings.particleDensity = parseInt(e.target.value);
+                    particleDensityValue.textContent = this.settings.particleDensity;
+                });
+                
+                const flowSpeedSlider = document.getElementById('flowSpeed');
+                const flowSpeedValue = document.getElementById('flowSpeedValue');
+                
+                flowSpeedSlider.addEventListener('input', (e) => {
+                    this.settings.flowSpeed = parseFloat(e.target.value);
+                    flowSpeedValue.textContent = `${this.settings.flowSpeed}x`;
+                });
+                
+                
+                // Action buttons
+                document.getElementById('resetBtn').addEventListener('click', () => {
+                    this.reset();
+                });
+                
+                document.getElementById('pauseBtn').addEventListener('click', (e) => {
+                    this.isRunning = !this.isRunning;
+                    e.target.textContent = this.isRunning ? 'Pause' : 'Play';
+                });
+                
+                document.getElementById('showVectorsBtn').addEventListener('click', (e) => {
+                    const showing = this.renderer.toggleVectors();
+                    e.target.textContent = showing ? 'Hide Vectors' : 'Show Vectors';
+                });
+            }
+            
+            setupCanvasInteraction() {
+                this.renderer.canvas.addEventListener('injectAir', (e) => {
+                    const { x, y, temperature, velocity } = e.detail;
+                    
+                    if (this.apartment.isValidPosition(x, y)) {
+                        for (let i = 0; i < 5; i++) { // Inject multiple particles
+                            const particle = new AirParticle(
+                                x + (Math.random() - 0.5) * 0.3,
+                                y + (Math.random() - 0.5) * 0.3,
+                                temperature,
+                                {
+                                    x: velocity.x + (Math.random() - 0.5) * 0.5,
+                                    y: velocity.y + (Math.random() - 0.5) * 0.5
+                                }
+                            );
+                            this.particles.push(particle);
+                        }
+                    }
+                });
+            }
+            
+            initializeParticles() {
+                // Add some initial ambient air particles
+                for (let i = 0; i < 50; i++) {
+                    const x = Math.random() * this.apartment.width;
+                    const y = Math.random() * this.apartment.height;
+                    
+                    if (this.apartment.isValidPosition(x, y)) {
+                        const particle = new AirParticle(x, y, this.settings.ambientTemp);
+                        this.particles.push(particle);
+                    }
+                }
+            }
+            
+            animate(currentTime = 0) {
+                const deltaTime = (currentTime - this.lastTime) / 1000; // Convert to seconds
+                this.lastTime = currentTime;
+                
+                if (this.isRunning && deltaTime > 0) {
+                    this.update(deltaTime * this.settings.flowSpeed);
+                }
+                
+                this.render();
+                this.updateUI();
+                
+                requestAnimationFrame((time) => this.animate(time));
+            }
+            
+            update(dt) {
+                // Limit particle count - but be more generous for higher density settings
+                const maxParticles = Math.max(500, this.settings.particleDensity * 8);
+                while (this.particles.length > maxParticles) {
+                    this.particles.shift();
+                }
+                
+                // Update flow solver
+                this.flowSolver.update(this.particles, dt);
+                
+                // Update particles
+                this.particles = this.particles.filter(particle => 
+                    particle.update(dt, this.apartment, this.settings.ambientTemp)
+                );
+                
+                // Add AC particles if AC is active - check for particle limits
+                if (this.apartment.acUnit.isActive && this.frameCount % 2 === 0) { // More frequent spawning
+                    const beforeCount = this.particles.length;
+                    this.addACParticles();
+                    const afterCount = this.particles.length;
+                    
+                    // Debug: Log if AC stopped producing particles
+                    if (this.frameCount % 120 === 0 && beforeCount === afterCount && this.apartment.acUnit.isActive) {
+                        console.log(`AC not producing particles. Count: ${this.particles.length}, Max: ${Math.max(500, this.settings.particleDensity * 8)}`);
+                    }
+                }
+                
+                // Add fan particles if fans are active (less frequently than AC)
+                if (this.frameCount % 3 === 0) { // Every 3 frames - give AC priority
+                    this.addFanParticles();
+                }
+                
+                this.frameCount++;
+            }
+            
+            addACParticles() {
+                const particlesPerFrame = Math.floor(this.settings.acFlow / 12); // Slightly more particles
+                const ac = this.apartment.acUnit;
+                const maxParticles = Math.max(500, this.settings.particleDensity * 8);
+                
+                for (let i = 0; i < particlesPerFrame; i++) {
+                    if (this.particles.length < maxParticles * 0.95) { // Higher threshold for AC
+                        // Simulate AC vent pipe - particles start at center back of tube
+                        const pipeLength = 0.2; // 20cm pipe simulation
+                        const x = ac.x + 0.05; // Start near back of AC unit
+                        const y = ac.y + ac.height/2; // Exact center vertically
+                        
+                        // Particles inside AC tube start with pure horizontal velocity
+                        const minSpeed = 1.2; // Minimum speed to maintain narrow beam
+                        const speed = Math.max(minSpeed, ac.flowStrength * 1.5);
+                        
+                        const particle = new AirParticle(
+                            x, y, 
+                            this.settings.acTemp,
+                            {
+                                x: speed, // Pure horizontal velocity inside tube
+                                y: 0      // No vertical component initially
+                            }
+                        );
+                        
+                        this.particles.push(particle);
+                    }
+                }
+            }
+            
+            addFanParticles() {
+                const maxParticles = Math.max(500, this.settings.particleDensity * 8);
+                
+                Object.values(this.apartment.fans).forEach(fan => {
+                    if (!fan.isActive) return;
+                    
+                    const particlesPerFrame = Math.floor(fan.flowStrength * 2); // Fewer particles to not compete with AC
+                    
+                    for (let i = 0; i < particlesPerFrame; i++) {
+                        if (this.particles.length < maxParticles * 0.9) {
+                            // Fan particles spawn inside the fan unit center
+                            const x = fan.x + fan.width/2;
+                            const y = fan.y + fan.height/2;
+                            
+                            // Create narrow directional beam like AC unit (±2 degrees)
+                            const maxAngleDegrees = 2; // Narrow fan beam
+                            const angleRadians = (Math.random() - 0.5) * 2 * (maxAngleDegrees * Math.PI / 180);
+                            
+                            // Calculate base direction
+                            const baseAngle = Math.atan2(fan.direction.y, fan.direction.x);
+                            const finalAngle = baseAngle + angleRadians;
+                            
+                            const speed = fan.flowStrength * 2.0; // Strong directional flow
+                            const particle = new AirParticle(
+                                x, y,
+                                this.settings.ambientTemp, // Fans move ambient air
+                                {
+                                    x: speed * Math.cos(finalAngle),
+                                    y: speed * Math.sin(finalAngle)
+                                }
+                            );
+                            
+                            this.particles.push(particle);
+                        }
+                    }
+                });
+            }
+            
+            render() {
+                this.renderer.render(this.particles);
+            }
+            
+            updateUI() {
+                // Update temperature probes
+                const upperTemp = this.apartment.getAverageTemperatureInZone('upperMezzanine');
+                const lowerTemp = this.apartment.getAverageTemperatureInZone('lowerFloor');
+                const stairTemp = (this.apartment.getAverageTemperatureInZone('upperMezzanine') + 
+                                  this.apartment.getAverageTemperatureInZone('lowerFloor')) / 2;
+                
+                document.getElementById('upperTemp').textContent = `${upperTemp.toFixed(1)}°C`;
+                document.getElementById('lowerTemp').textContent = `${lowerTemp.toFixed(1)}°C`;
+                document.getElementById('stairTemp').textContent = `${stairTemp.toFixed(1)}°C`;
+            }
+            
+            reset() {
+                this.particles = [];
+                
+                // Reset zone temperatures
+                Object.values(this.apartment.zones).forEach(zone => {
+                    zone.temperature = this.settings.ambientTemp;
+                    zone.airParticles = [];
+                });
+                
+                // Re-initialize with ambient particles
+                this.initializeParticles();
+            }
+        }
+
+        // Start the simulation when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new FluidSimulation();
+        });
+    </script>
 </body>
 </html>
