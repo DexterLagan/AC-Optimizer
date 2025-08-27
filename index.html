@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apartment Airflow Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            display: flex;
+            gap: 20px;
+        }
+        
+        .controls {
+            width: 280px;
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            height: fit-content;
+        }
+        
+        .control-group {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #444;
+        }
+        
+        .control-group:last-child {
+            border-bottom: none;
+        }
+        
+        .control-group h3 {
+            margin: 0 0 10px 0;
+            color: #60a5fa;
+        }
+        
+        label {
+            display: block;
+            margin: 8px 0 4px 0;
+            font-size: 14px;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            margin: 4px 0;
+        }
+        
+        input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 4px 4px 4px 0;
+        }
+        
+        button:hover {
+            background: #2563eb;
+        }
+        
+        .value-display {
+            color: #9ca3af;
+            font-size: 12px;
+        }
+        
+        #canvas {
+            border: 2px solid #444;
+            border-radius: 4px;
+            background: #000;
+        }
+        
+        .canvas-container {
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <div class="control-group">
+            <h3>Temperature</h3>
+            <label>
+                Ambient Temperature: <span id="ambientTempValue">22°C</span>
+                <input type="range" id="ambientTemp" min="15" max="40" value="22" step="0.5">
+            </label>
+            <label>
+                AC Temperature: <span id="acTempValue">16°C</span>
+                <input type="range" id="acTemp" min="10" max="25" value="16" step="0.5">
+            </label>
+        </div>
+        
+        <div class="control-group">
+            <h3>AC & Openings</h3>
+            <label>
+                AC Flow Strength: <span id="acFlowValue">50%</span>
+                <input type="range" id="acFlow" min="0" max="100" value="50">
+            </label>
+            <label>
+                <input type="checkbox" id="bedroomDoor" checked>
+                Bedroom Door Open
+            </label>
+            <label>
+                <input type="checkbox" id="leftWindow">
+                Left Window Open
+            </label>
+            <label>
+                <input type="checkbox" id="rightWindow">
+                Right Window Open
+            </label>
+            <label>
+                Window Height: <span id="windowHeightValue">30%</span>
+                <input type="range" id="windowHeight" min="10" max="100" value="30">
+            </label>
+        </div>
+        
+        <div class="control-group">
+            <h3>Fans</h3>
+            <label>
+                <input type="checkbox" id="stairFan">
+                Stair Fan (Down)
+            </label>
+            <label>
+                <input type="checkbox" id="bedroomFan">
+                Bedroom Fan (Toward Door)
+            </label>
+            <label>
+                Fan Speed: <span id="fanSpeedValue">50%</span>
+                <input type="range" id="fanSpeed" min="10" max="100" value="50">
+            </label>
+        </div>
+        
+        <div class="control-group">
+            <h3>Simulation</h3>
+            <label>
+                Particle Density: <span id="particleDensityValue">100</span>
+                <input type="range" id="particleDensity" min="50" max="1000" value="100">
+            </label>
+            <label>
+                Flow Speed: <span id="flowSpeedValue">1.0x</span>
+                <input type="range" id="flowSpeed" min="0.1" max="3.0" value="1.0" step="0.1">
+            </label>
+        </div>
+        
+        <div class="control-group">
+            <h3>Actions</h3>
+            <button id="resetBtn">Reset</button>
+            <button id="pauseBtn">Pause</button>
+            <button id="showVectorsBtn">Show Vectors</button>
+        </div>
+        
+        <div class="control-group">
+            <h3>Temperature Probes</h3>
+            <div>Upper Floor: <span id="upperTemp">--°C</span></div>
+            <div>Lower Floor: <span id="lowerTemp">--°C</span></div>
+            <div>Stair Area: <span id="stairTemp">--°C</span></div>
+        </div>
+    </div>
+    
+    <div class="canvas-container">
+        <canvas id="canvas" width="900" height="600"></canvas>
+    </div>
+
+    <script type="module" src="main.js"></script>
+</body>
+</html>
