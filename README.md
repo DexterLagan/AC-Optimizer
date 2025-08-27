@@ -10,6 +10,10 @@
 
 AC-Optimizer is a real-time 2D fluid simulation that helps you understand and optimize air conditioning performance in residential spaces. Using advanced particle physics and zone-based modeling, it simulates cold air distribution, thermal mixing, and airflow patterns in a two-story apartment cross-section.
 
+![AC-Optimizer Simulation](screenshots/1000-particles.png)
+
+*Real-time fluid simulation showing 1000 particles with AC unit, fans, and thermal dynamics*
+
 ### 🎯 Perfect For:
 - **Homeowners** planning AC installation or optimization
 - **HVAC Engineers** visualizing airflow patterns
@@ -56,14 +60,11 @@ Visit the [live demo](https://dexterlagan.github.io/AC-Optimizer) - no installat
 git clone https://github.com/DexterLagan/AC-Optimizer.git
 cd AC-Optimizer
 
-# Start local server
-python -m http.server 8000
-# OR
-npx serve .
-
-# Open in browser
-open http://localhost:8000
+# Open directly in browser (no server required!)
+open index.html
 ```
+
+*Note: The application now works without a local server - just open `index.html` directly in any modern browser!*
 
 ### 🎛️ **Basic Usage**
 1. **Start the AC**: Turn on the AC unit and adjust temperature/flow
@@ -162,18 +163,15 @@ flowRate = temperatureDifference * openingArea * flowCoefficient
 ### 📁 **Project Structure**
 ```
 AC-Optimizer/
-├── 📄 index.html          # Main application UI
-├── ⚙️ main.js             # Application orchestration  
-├── 📁 core/
-│   ├── 🏠 Apartment.js    # Zone definitions & geometry
-│   ├── ⚛️ AirParticle.js  # Particle physics & behavior
-│   └── 🌊 FlowSolver.js   # Inter-zone flow dynamics
-├── 📁 ui/
-│   └── 🎨 Canvas.js       # Visualization & rendering
+├── 📄 index.html          # Standalone application (all-in-one)
+├── 📁 screenshots/        # Demo images and visual assets
+│   └── 🖼️ 1000-particles.png
 └── 📁 docs/
     ├── 📋 CLAUDE.md       # Technical documentation
     └── 📖 README.md       # This file
 ```
+
+*Note: The project has been streamlined to a single HTML file containing embedded JavaScript for maximum portability and ease of use.*
 
 ### 🔧 **Contributing**
 1. Fork the repository
